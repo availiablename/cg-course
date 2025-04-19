@@ -6,8 +6,8 @@ import numpy as np
 
 g_cam_ang = 0.
 g_cam_elevation = 0.
-g_cam_offset_x = .1
-g_cam_offset_y = .1
+g_cam_offset_x =  0.
+g_cam_offset_y =  0.
 g_shift_pressed = False
 g_alt_pressed = False
 g_ctrl_pressed = False
@@ -191,6 +191,35 @@ def prepare_vao_frame():
 
     return VAO
 
+def prepare_vao_grid():
+    grid_vertices = []
+    step = 0.1
+    range_val = 1.0
+
+    for x in np.arange(-range_val, range_val + step, step):
+        grid_vertices.extend([x, 0.0, -range_val, 0.5, 0.5, 0.5])  
+        grid_vertices.extend([x, 0.0, range_val, 0.5, 0.5, 0.5])   
+
+    for z in np.arange(-range_val, range_val + step, step):
+        grid_vertices.extend([-range_val, 0.0, z, 0.5, 0.5, 0.5])
+        grid_vertices.extend([range_val, 0.0, z, 0.5, 0.5, 0.5])
+
+    grid_vertices = np.array(grid_vertices, dtype=np.float32)
+
+    VAO = glGenVertexArrays(1)
+    glBindVertexArray(VAO)
+
+    VBO = glGenBuffers(1)
+    glBindBuffer(GL_ARRAY_BUFFER, VBO)
+    glBufferData(GL_ARRAY_BUFFER, grid_vertices.nbytes, grid_vertices, GL_STATIC_DRAW)
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * glm.sizeof(glm.float32), None)
+    glEnableVertexAttribArray(0)
+
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * glm.sizeof(glm.float32), ctypes.c_void_p(3 * grid_vertices.itemsize))
+    glEnableVertexAttribArray(1)
+
+    return VAO, len(grid_vertices) // 6
 
 def main():
     # initialize glfw
@@ -221,6 +250,7 @@ def main():
     
     # prepare vaos
     vao_frame = prepare_vao_frame()
+    vao_grid, grid_vertex_count = prepare_vao_grid()
 
     # loop until the user closes the window
     while not glfwWindowShouldClose(window):
@@ -238,7 +268,7 @@ def main():
 
         # view matrix
         # rotate camera position with g_cam_ang / move camera up & down with g_cam_height
-        V = glm.lookAt(glm.vec3(g_cam_offset_x + .2*np.sin(g_cam_ang), g_cam_offset_y + .2*np.sin(g_cam_elevation), .1 + .2*np.cos(g_cam_ang)*np.cos(g_cam_elevation)), glm.vec3(g_cam_offset_x ,g_cam_offset_y ,0), glm.vec3(0,1,0))
+        V = glm.lookAt(glm.vec3(g_cam_offset_x + .2*np.sin(g_cam_ang),g_cam_offset_y + .2*np.sin(g_cam_elevation),.2*np.cos(g_cam_ang)*np.cos(g_cam_elevation)), glm.vec3(g_cam_offset_x ,g_cam_offset_y ,0), glm.vec3(0,1,0))
 
         # current frame: P*V*I (now this is the world frame)
         I = glm.mat4()
@@ -249,6 +279,8 @@ def main():
         glBindVertexArray(vao_frame)
         glDrawArrays(GL_LINES, 0, 6)
 
+        glBindVertexArray(vao_grid)
+        glDrawArrays(GL_LINES, 0, grid_vertex_count)
         # swap front and back buffers
         glfwSwapBuffers(window)
 
