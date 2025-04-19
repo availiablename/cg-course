@@ -195,7 +195,7 @@ def prepare_vao_frame():
 def prepare_vao_grid():
     grid_vertices = []
     step = 0.1
-    range_val = 1.0
+    range_val = 3.0
 
     for x in np.arange(-range_val, range_val + step, step):
         grid_vertices.extend([x, 0.0, -range_val, 0.5, 0.5, 0.5])  
