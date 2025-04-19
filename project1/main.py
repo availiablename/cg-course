@@ -1,4 +1,5 @@
 from OpenGL.GL import *
+from OpenGL.GLU import *
 from glfw.GLFW import *
 import glm
 import ctypes
@@ -133,20 +134,6 @@ def cursor_position_callback(window, xpos, ypos):
     if g_dragging:
         if g_shift_pressed and g_alt_pressed:
             if dx > 0:
-                g_cam_ang += np.radians(1)
-            elif dx < 0:
-                g_cam_ang += np.radians(-1)
-            elif dy > 0:
-                g_cam_elevation += np.radians(1)
-            elif dy < 0:
-                g_cam_elevation -= np.radians(-1)
-        elif g_ctrl_pressed and g_alt_pressed:
-            if dy < 0:
-                g_zoom /= 1.05
-            elif dy > 0:
-                g_zoom *= 1.05
-        elif g_alt_pressed:
-            if dx > 0:
                 g_cam_offset_x += .01
             elif dx < 0:
                 g_cam_offset_x -= .01
@@ -154,6 +141,20 @@ def cursor_position_callback(window, xpos, ypos):
                 g_cam_offset_y += .01
             elif dy < 0:
                 g_cam_offset_y -= .01
+        elif g_ctrl_pressed and g_alt_pressed:
+            if dy < 0:
+                g_zoom /= 1.05
+            elif dy > 0:
+                g_zoom *= 1.05
+        elif g_alt_pressed:
+            if dx > 0:
+                g_cam_ang += np.radians(1)
+            elif dx < 0:
+                g_cam_ang += np.radians(-1)
+            elif dy > 0:
+                g_cam_elevation += np.radians(1)
+            elif dy < 0:
+                g_cam_elevation -= np.radians(-1)
 
     g_prev_x = xpos
     g_prev_y = ypos
@@ -219,7 +220,7 @@ def prepare_vao_grid():
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * glm.sizeof(glm.float32), ctypes.c_void_p(3 * grid_vertices.itemsize))
     glEnableVertexAttribArray(1)
 
-    return VAO, len(grid_vertices) // 6
+    return VAO, len(grid_vertices)
 
 def main():
     # initialize glfw
@@ -231,7 +232,7 @@ def main():
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE) # for macOS
 
     # create a window and OpenGL context
-    window = glfwCreateWindow(800, 800, '2021085923', None, None)
+    window = glfwCreateWindow(1200, 1200, '2021085923', None, None)
     if not window:
         glfwTerminate()
         return
@@ -265,10 +266,10 @@ def main():
         # projection matrix
         # use orthogonal projection (we'll see details later)
         P = glm.ortho(-1*g_zoom,1*g_zoom,-1*g_zoom,1*g_zoom,-1,1)
-
+        
         # view matrix
         # rotate camera position with g_cam_ang / move camera up & down with g_cam_height
-        V = glm.lookAt(glm.vec3(g_cam_offset_x + .2*np.sin(g_cam_ang),g_cam_offset_y + .2*np.sin(g_cam_elevation),.2*np.cos(g_cam_ang)*np.cos(g_cam_elevation)), glm.vec3(g_cam_offset_x ,g_cam_offset_y ,0), glm.vec3(0,1,0))
+        V = glm.lookAt(glm.vec3(g_cam_offset_x + .5*np.sin(g_cam_ang),g_cam_offset_y + .5*np.sin(g_cam_elevation),.5*np.cos(g_cam_ang)*np.cos(g_cam_elevation)), glm.vec3(g_cam_offset_x ,g_cam_offset_y ,0), glm.vec3(0,1,0))
 
         # current frame: P*V*I (now this is the world frame)
         I = glm.mat4()
@@ -278,7 +279,9 @@ def main():
         # draw current frame
         glBindVertexArray(vao_frame)
         glDrawArrays(GL_LINES, 0, 6)
-
+        P_grid = glm.perspective(45, 1, .5, 1)
+        MVP_grid = P_grid*V*I
+        glUniformMatrix4fv(MVP_loc, 1, GL_FALSE, glm.value_ptr(MVP_grid))
         glBindVertexArray(vao_grid)
         glDrawArrays(GL_LINES, 0, grid_vertex_count)
         # swap front and back buffers
