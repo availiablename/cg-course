@@ -269,7 +269,7 @@ def main():
         
         # view matrix
         # rotate camera position with g_cam_ang / move camera up & down with g_cam_height
-        V = glm.lookAt(glm.vec3(g_cam_offset_x + .5*np.sin(g_cam_ang),g_cam_offset_y + .5*np.sin(g_cam_elevation),.5*np.cos(g_cam_ang)*np.cos(g_cam_elevation)), glm.vec3(g_cam_offset_x ,g_cam_offset_y ,0), glm.vec3(0,1,0))
+        V = glm.lookAt(glm.vec3(g_cam_offset_x + .5*np.sin(g_cam_ang),g_cam_offset_y + .5*np.sin(g_cam_elevation),.5*np.cos(g_cam_ang)), glm.vec3(g_cam_offset_x ,g_cam_offset_y ,0), glm.vec3(0,1,0))
 
         # current frame: P*V*I (now this is the world frame)
         I = glm.mat4()
