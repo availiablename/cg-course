@@ -16,6 +16,7 @@ g_prev_x = 0
 g_prev_y = 0
 g_zoom = 1.0
 objects = []
+offset_x = 0.
 
 g_vertex_shader_src = '''
 #version 330 core
@@ -189,6 +190,7 @@ def load_obj(file_path):
                     
                     # 정점 인덱스
                     vertex_index = int(indices_split[0]) - 1
+                    
                     indices.append(vertex_index)
                     
                     # 법선 벡터 인덱스 (v//vn or v/vt/vn)
@@ -201,7 +203,7 @@ def load_obj(file_path):
     normals = np.array(normals, dtype=np.float32)
     indices = np.array(indices, dtype=np.uint32)
     normal_indices = np.array(normal_indices, dtype=np.uint32)
-    
+
     print(f"Loaded {len(vertices) // 3} vertices, {len(normals) // 3} normals, {len(indices)} indices")
     return vertices, indices
 
@@ -221,7 +223,7 @@ def setup_buffers(vertices, indices):
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.nbytes, indices, GL_STATIC_DRAW)
 
     # 정점 속성 설정
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * ctypes.sizeof(ctypes.c_float), ctypes.c_void_p(0))
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_TRUE, 3 * ctypes.sizeof(ctypes.c_float), ctypes.c_void_p(0))
     glEnableVertexAttribArray(0)
 
     glBindBuffer(GL_ARRAY_BUFFER, 0)
@@ -231,6 +233,7 @@ def setup_buffers(vertices, indices):
 
 def drop_callback(window, paths):
     global objects
+    global offset_x
     model_path = paths[0]
     print(f"Loading model: {model_path}")
     for path in paths:
@@ -240,13 +243,14 @@ def drop_callback(window, paths):
         VAO, index_count = setup_buffers(vertices, indices)
         
         # 랜덤 위치로 모델 배치
-        #position = glm.vec3(np.random.uniform(-2, 2), np.random.uniform(-2, 2), np.random.uniform(-2, 2))
+        position = (offset_x, 0., 0.)
         objects.append({
             "VAO": VAO,
             "index_count": index_count,
-            #"position": position
+            "position": position
         })
         print(f"Successfully loaded {model_path} with {index_count} indices")
+        offset_x += 2.0
     except Exception as e:
         print(f"Failed to load model: {e}")
 
@@ -380,8 +384,11 @@ def main():
         # swap front and back buffers
         for obj in objects:
             model = glm.mat4(1.0)
-            model = glm.rotate(model, glfwGetTime(), glm.vec3(0, 1, 0))
-            glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, GL_FALSE, glm.value_ptr(model))
+            model = glm.scale(model, glm.vec3(0.1))
+            model = glm.translate(model, glm.vec3(obj["position"]))
+            #model = glm.rotate(model, glfwGetTime(), glm.vec3(0, 1, 0))
+            model = P*V*model
+            glUniformMatrix4fv(MVP_loc, 1, GL_FALSE, glm.value_ptr(model))
 
             glBindVertexArray(obj["VAO"])
             glDrawElements(GL_TRIANGLES, obj["index_count"], GL_UNSIGNED_INT, None)
