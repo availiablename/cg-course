@@ -17,6 +17,10 @@ g_prev_y = 0
 g_zoom = 1.0
 objects = []
 offset_x = 0.
+face_count = 0
+vertice_3_face_count = 0
+vertice_4_face_count = 0
+other = 0
 
 g_vertex_shader_src = '''
 #version 330 core
@@ -43,7 +47,7 @@ g_fragment_shader_src = '''
 #version 330 core
 
 in vec4 vout_color;
-
+uniform vec3 light_pos;
 out vec4 FragColor;
 
 void main()
@@ -161,6 +165,7 @@ def cursor_position_callback(window, xpos, ypos):
     g_prev_y = ypos
 
 def load_obj(file_path):
+    global face_count, vertice_3_face_count, vertice_4_face_count, other
     vertices = []
     normals = []
     indices = []
@@ -184,27 +189,41 @@ def load_obj(file_path):
             
             # 면 정의 (f)
             elif parts[0] == "f":
-                for p in parts[1:]:
-                    # v/vt/vn or v//vn or v
-                    indices_split = p.split('/')
-                    
-                    # 정점 인덱스
-                    vertex_index = int(indices_split[0]) - 1
-                    
-                    indices.append(vertex_index)
-                    
-                    # 법선 벡터 인덱스 (v//vn or v/vt/vn)
-                    if len(indices_split) == 3 or (len(indices_split) == 2 and indices_split[1] != ''):
-                        normal_index = int(indices_split[-1]) - 1
-                        normal_indices.append(normal_index)
+                face_count += 1
+                if len(parts) > 5:
+                    other += 1
+                    verts = [p.split('/')[0] for p in parts[1:]]
+                    for i in range(1, len(verts) - 1):
+                        indices.append(int(verts[0]) - 1)
+                        indices.append(int(verts[i]) - 1)
+                        indices.append(int(verts[i+1]) - 1)
+
+                elif len(parts) == 5:
+                    vertice_4_face_count += 1
+                    verts = [p.split('/')[0] for p in parts[1:]]
+
+                    indices.append(int(verts[0]) - 1)
+                    indices.append(int(verts[1]) - 1)
+                    indices.append(int(verts[2]) - 1)
+
+                    indices.append(int(verts[0]) - 1)
+                    indices.append(int(verts[2]) - 1)
+                    indices.append(int(verts[3]) - 1)
+
+                elif len(parts) == 4:
+                    vertice_3_face_count += 1
+                    for p in parts[1:]:
+                        verts = int(p.split('/')[0]) - 1
+                        indices.append(verts)
+                
 
     # numpy 배열로 변환
     vertices = np.array(vertices, dtype=np.float32)
     normals = np.array(normals, dtype=np.float32)
     indices = np.array(indices, dtype=np.uint32)
     normal_indices = np.array(normal_indices, dtype=np.uint32)
-
-    print(f"Loaded {len(vertices) // 3} vertices, {len(normals) // 3} normals, {len(indices)} indices")
+    file_name = [file_path.split('\\')[-1]]
+    print(f"Obj file name : {file_name}, Total number of faces : {face_count}, Number of faces with 3 vertices : {vertice_3_face_count}, Number of faces with 4 vertices : {vertice_4_face_count}, Number of faces with more than 4 vertices : {other}")
     return vertices, indices
 
 def setup_buffers(vertices, indices):
@@ -242,14 +261,13 @@ def drop_callback(window, paths):
         vertices, indices = load_obj(model_path)
         VAO, index_count = setup_buffers(vertices, indices)
         
-        # 랜덤 위치로 모델 배치
         position = (offset_x, 0., 0.)
         objects.append({
             "VAO": VAO,
             "index_count": index_count,
             "position": position
         })
-        print(f"Successfully loaded {model_path} with {index_count} indices")
+        
         offset_x += 2.0
     except Exception as e:
         print(f"Failed to load model: {e}")
@@ -344,6 +362,7 @@ def main():
 
     # get uniform locations
     MVP_loc = glGetUniformLocation(shader_program, 'MVP')
+    loc_light_pos = glGetUniformLocation(shader_program, 'light_pos')
     
     # prepare vaos
     vao_frame = prepare_vao_frame()
@@ -361,7 +380,7 @@ def main():
 
         # projection matrix
         # use orthogonal projection (we'll see details later)
-        #P = glm.ortho(-1*g_zoom,1*g_zoom,-1*g_zoom,1*g_zoom,-1,1)
+        P_ortho = glm.ortho(-1*g_zoom,1*g_zoom,-1*g_zoom,1*g_zoom,-1,1)
         P = glm.perspective(45, 1, .1, 20)
         
         # view matrix
@@ -371,7 +390,7 @@ def main():
         #V = glm.lookAt(view_pos, glm.vec3(0,0,0), glm.vec3(0,1,0))
         # current frame: P*V*I (now this is the world frame)
         I = glm.mat4()
-        MVP = P*V*I
+        MVP = P_ortho*V*I
         glUniformMatrix4fv(MVP_loc, 1, GL_FALSE, glm.value_ptr(MVP))
 
         # draw current frame
