@@ -26,11 +26,13 @@ g_vertex_shader_src = '''
 #version 330 core
 
 layout (location = 0) in vec3 vin_pos; 
-layout (location = 1) in vec3 vin_color; 
+layout (location = 1) in vec3 vin_normal; 
 
-out vec4 vout_color;
+out vec3 vout_surface_pos;
+out vec3 vout_normal;
 
 uniform mat4 MVP;
+uniform mat4 M;
 
 void main()
 {
@@ -39,20 +41,60 @@ void main()
 
     gl_Position = MVP * p3D_in_hcoord;
 
-    vout_color = vec4(vin_color, 1.);
+    vout_surface_pos = vec3(M * vec4(vin_pos, 1));
+    vout_normal = normalize( mat3(inverse(transpose(M)) ) * vin_normal);
 }
 '''
 
 g_fragment_shader_src = '''
 #version 330 core
 
-in vec4 vout_color;
-uniform vec3 light_pos;
+in vec3 vout_surface_pos;
+in vec3 vout_normal;  // interpolated normal
+
 out vec4 FragColor;
+
+uniform vec3 view_pos;
+uniform vec3 light_pos;
 
 void main()
 {
-    FragColor = vout_color;
+    // light and material properties
+    
+    vec3 light_color = vec3(1,1,1);
+    vec3 material_color = vec3(1.0, 1.0, 1.0);
+    float material_shininess = 32.0;
+
+    // light components
+    vec3 light_ambient = 0.1*light_color;
+    vec3 light_diffuse = light_color;
+    vec3 light_specular = light_color;
+
+    // material components
+    vec3 material_ambient = material_color;
+    vec3 material_diffuse = material_color;
+    vec3 material_specular = vec3(1,1,1);  // for non-metal material
+
+    // ambient
+    vec3 ambient = light_ambient * material_ambient;
+
+    // for diffiuse and specular
+    vec3 normal = normalize(vout_normal);
+    vec3 surface_pos = vout_surface_pos;
+    vec3 light_dir = normalize(light_pos - surface_pos);
+
+    // diffuse
+    float diff = max(dot(normal, light_dir), 0);
+    vec3 diffuse = diff * light_diffuse * material_diffuse;
+
+    // specular
+    vec3 view_dir = normalize(view_pos - surface_pos);
+    vec3 reflect_dir = reflect(-light_dir, normal);
+    float spec = pow( max(dot(view_dir, reflect_dir), 0.0), material_shininess);
+    vec3 specular = spec * light_specular * material_specular;
+
+    vec3 color = ambient + diffuse + specular;
+    FragColor = vec4(color, 1.);
 }
 '''
 
@@ -139,18 +181,18 @@ def cursor_position_callback(window, xpos, ypos):
     if g_dragging:
         if g_shift_pressed and g_alt_pressed:
             if dx > 0:
-                g_cam_offset_x += .01
+                g_cam_offset_x += .05
             elif dx < 0:
-                g_cam_offset_x -= .01
+                g_cam_offset_x -= .05
             elif dy > 0:
-                g_cam_offset_y += .01
+                g_cam_offset_y += .05
             elif dy < 0:
-                g_cam_offset_y -= .01
+                g_cam_offset_y -= .05
         elif g_ctrl_pressed and g_alt_pressed:
             if dy > 0:
-                zoom_offset += .01
+                zoom_offset += .05
             elif dy < 0:
-                zoom_offset -= .01
+                zoom_offset -= .05
         elif g_alt_pressed:                                                                 
             if dx > 0:
                 g_cam_ang += np.radians(1)
@@ -177,17 +219,14 @@ def load_obj(file_path):
             if not parts:
                 continue
             
-            # 정점 (v)
             if parts[0] == "v":
                 vertex = [float(x) for x in parts[1:]]
                 vertices.extend(vertex)
             
-            # 법선 벡터 (vn)
             elif parts[0] == "vn":
                 normal = [float(x) for x in parts[1:]]
                 normals.extend(normal)
             
-            # 면 정의 (f)
             elif parts[0] == "f":
                 face_count += 1
                 if len(parts) > 5:
@@ -216,8 +255,6 @@ def load_obj(file_path):
                         verts = int(p.split('/')[0]) - 1
                         indices.append(verts)
                 
-
-    # numpy 배열로 변환
     vertices = np.array(vertices, dtype=np.float32)
     normals = np.array(normals, dtype=np.float32)
     indices = np.array(indices, dtype=np.uint32)
@@ -227,7 +264,6 @@ def load_obj(file_path):
     return vertices, normals, indices
 
 def setup_buffers(vertices, normals, indices):
-    combined_data = np.hstack((vertices, normals)).astype(np.float32)
     VAO = glGenVertexArrays(1)
     VBO = glGenBuffers(1)
     EBO = glGenBuffers(1)
@@ -243,12 +279,8 @@ def setup_buffers(vertices, normals, indices):
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.nbytes, indices, GL_STATIC_DRAW)
 
     # 정점 속성 설정
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_TRUE, 3 * ctypes.sizeof(ctypes.c_float), None)
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_TRUE, 3 * glm.sizeof(glm.float32), None)
     glEnableVertexAttribArray(0)
-
-    
-
-    
 
     glBindBuffer(GL_ARRAY_BUFFER, 0)
     glBindVertexArray(0)
@@ -312,8 +344,8 @@ def prepare_vao_frame():
 
 def prepare_vao_grid():
     grid_vertices = []
-    step = 0.1
-    range_val = 3.0
+    step = 0.5
+    range_val = 20.0
 
     for x in np.arange(-range_val, range_val + step, step):
         grid_vertices.extend([x, 0.0, -range_val, 0.5, 0.5, 0.5])  
@@ -417,7 +449,7 @@ def main():
         # swap front and back buffers
         for obj in objects:
             model = glm.mat4(1.0)
-            model = glm.scale(model, glm.vec3(0.1))
+            #model = glm.scale(model, glm.vec3(0.1))
             model = glm.translate(model, glm.vec3(obj["position"]))
             #model = glm.rotate(model, glfwGetTime(), glm.vec3(0, 1, 0))
             model = P*V*model
