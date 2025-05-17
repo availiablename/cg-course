@@ -14,7 +14,7 @@ g_ctrl_pressed = False
 g_dragging = False
 g_prev_x = 0
 g_prev_y = 0
-g_zoom = 1.0
+zoom_offset = 0
 objects = []
 offset_x = 0.
 face_count = 0
@@ -130,12 +130,12 @@ def mouse_button_callback(window, button, action, mods):
             g_dragging = False
 
 def cursor_position_callback(window, xpos, ypos):
-    global g_ctrl_pressed, g_shift_pressed, g_alt_pressed, g_zoom, g_dragging
+    global g_ctrl_pressed, g_shift_pressed, g_alt_pressed, g_dragging, zoom_offset
     global g_cam_ang, g_cam_height, g_cam_elevation, g_cam_offset_x, g_cam_offset_y
     global g_prev_x, g_prev_y
+    
     dx = xpos - g_prev_x
     dy = ypos - g_prev_y
-    
     if g_dragging:
         if g_shift_pressed and g_alt_pressed:
             if dx > 0:
@@ -147,11 +147,11 @@ def cursor_position_callback(window, xpos, ypos):
             elif dy < 0:
                 g_cam_offset_y -= .01
         elif g_ctrl_pressed and g_alt_pressed:
-            if dy < 0:
-                g_zoom /= 1.05
-            elif dy > 0:
-                g_zoom *= 1.05
-        elif g_alt_pressed:
+            if dy > 0:
+                zoom_offset += .01
+            elif dy < 0:
+                zoom_offset -= .01
+        elif g_alt_pressed:                                                                 
             if dx > 0:
                 g_cam_ang += np.radians(1)
             elif dx < 0:
@@ -224,9 +224,10 @@ def load_obj(file_path):
     normal_indices = np.array(normal_indices, dtype=np.uint32)
     file_name = [file_path.split('\\')[-1]]
     print(f"Obj file name : {file_name}, Total number of faces : {face_count}, Number of faces with 3 vertices : {vertice_3_face_count}, Number of faces with 4 vertices : {vertice_4_face_count}, Number of faces with more than 4 vertices : {other}")
-    return vertices, indices
+    return vertices, normals, indices
 
-def setup_buffers(vertices, indices):
+def setup_buffers(vertices, normals, indices):
+    combined_data = np.hstack((vertices, normals)).astype(np.float32)
     VAO = glGenVertexArrays(1)
     VBO = glGenBuffers(1)
     EBO = glGenBuffers(1)
@@ -242,8 +243,12 @@ def setup_buffers(vertices, indices):
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.nbytes, indices, GL_STATIC_DRAW)
 
     # 정점 속성 설정
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_TRUE, 3 * ctypes.sizeof(ctypes.c_float), ctypes.c_void_p(0))
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_TRUE, 3 * ctypes.sizeof(ctypes.c_float), None)
     glEnableVertexAttribArray(0)
+
+    
+
+    
 
     glBindBuffer(GL_ARRAY_BUFFER, 0)
     glBindVertexArray(0)
@@ -258,8 +263,8 @@ def drop_callback(window, paths):
     for path in paths:
         print(f"Dropped file: {path}")
     try:
-        vertices, indices = load_obj(model_path)
-        VAO, index_count = setup_buffers(vertices, indices)
+        vertices, normals, indices = load_obj(model_path)
+        VAO, index_count = setup_buffers(vertices, normals, indices)
         
         position = (offset_x, 0., 0.)
         objects.append({
@@ -275,13 +280,13 @@ def drop_callback(window, paths):
 def prepare_vao_frame():
     # prepare vertex data (in main memory)
     vertices = glm.array(glm.float32,
-        # position        # color
-         0.0, 0.0, 0.0,  1.0, 0.0, 0.0, # x-axis start
-         1.0, 0.0, 0.0,  1.0, 0.0, 0.0, # x-axis end 
-         0.0, 0.0, 0.0,  0.0, 1.0, 0.0, # y-axis start
-         0.0, 1.0, 0.0,  0.0, 1.0, 0.0, # y-axis end 
-         0.0, 0.0, 0.0,  0.0, 0.0, 1.0, # z-axis start
-         0.0, 0.0, 1.0,  0.0, 0.0, 1.0, # z-axis end 
+        # position       #normal        # color
+         -5.0, 0.0, 0.0, 1.0, 0.0, 0.0, # x-axis start
+         5.0, 0.0, 0.0,  1.0, 0.0, 0.0, # x-axis end 
+         0.0, -5.0, 0.0, 0.0, 1.0, 0.0, # y-axis start
+         0.0, 5.0, 0.0,  0.0, 1.0, 0.0, # y-axis end 
+         0.0, 0.0, -5.0, 0.0, 0.0, 1.0, # z-axis start
+         0.0, 0.0, 5.0,  0.0, 0.0, 1.0, # z-axis end 
     )
 
     # create and activate VAO (vertex array object)
@@ -362,7 +367,9 @@ def main():
 
     # get uniform locations
     MVP_loc = glGetUniformLocation(shader_program, 'MVP')
-    loc_light_pos = glGetUniformLocation(shader_program, 'light_pos')
+    loc_view_pos = glGetUniformLocation(shader_program, 'view_pos')
+    loc_M = glGetUniformLocation(shader_program, 'M')
+    loc_light_pos = glGetUniformLocation(shader_program, "light_pos")
     
     # prepare vaos
     vao_frame = prepare_vao_frame()
@@ -380,24 +387,31 @@ def main():
 
         # projection matrix
         # use orthogonal projection (we'll see details later)
-        P_ortho = glm.ortho(-1*g_zoom,1*g_zoom,-1*g_zoom,1*g_zoom,-1,1)
-        P = glm.perspective(45, 1, .1, 20)
+        P_ortho = glm.ortho(-1,1,-1,1,-1,1)
+        P = glm.perspective(45, 1, .1 , 20)
         
         # view matrix
         # rotate camera position with g_cam_ang / move camera up & down with g_cam_height
-        V = glm.lookAt(glm.vec3(g_cam_offset_x + .5*np.sin(g_cam_ang),g_cam_offset_y + .5*np.sin(g_cam_elevation),.5*np.cos(g_cam_ang)), glm.vec3(g_cam_offset_x ,g_cam_offset_y ,0), glm.vec3(0,1,0))
+        view_pos = glm.vec3(g_cam_offset_x + .5*np.sin(g_cam_ang),g_cam_offset_y + .5*np.sin(g_cam_elevation),.5*np.cos(g_cam_ang))
+        light_pos = glm.vec3(0, 10, 0)
+        view_target = glm.vec3(g_cam_offset_x ,g_cam_offset_y ,0)
+        direction = (view_pos - view_target) / glm.length(view_pos - view_target)
+        view_pos += zoom_offset * direction
+        V = glm.lookAt(view_pos, view_target, glm.vec3(0,1,0))
         #view_pos = glm.vec3(5*np.sin(g_cam_ang),.1,5*np.cos(g_cam_ang))
         #V = glm.lookAt(view_pos, glm.vec3(0,0,0), glm.vec3(0,1,0))
         # current frame: P*V*I (now this is the world frame)
         I = glm.mat4()
-        MVP = P_ortho*V*I
+        MVP = P*V*I
         glUniformMatrix4fv(MVP_loc, 1, GL_FALSE, glm.value_ptr(MVP))
-
+        glUniform3f(loc_view_pos, view_pos.x, view_pos.y, view_pos.z)
+        glUniform3f(loc_light_pos, light_pos.x, light_pos.y, light_pos.z)
         # draw current frame
         glBindVertexArray(vao_frame)
         glDrawArrays(GL_LINES, 0, 6)
         MVP_grid = P*V*I
         glUniformMatrix4fv(MVP_loc, 1, GL_FALSE, glm.value_ptr(MVP_grid))
+        glUniformMatrix4fv(loc_M, 1, GL_FALSE, glm.value_ptr(I))
         glBindVertexArray(vao_grid)
         glDrawArrays(GL_LINES, 0, grid_vertex_count)
         # swap front and back buffers
