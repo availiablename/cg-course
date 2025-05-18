@@ -21,6 +21,7 @@ face_count = 0
 vertice_3_face_count = 0
 vertice_4_face_count = 0
 other = 0
+draw_count = 0
 
 g_vertex_shader_src = '''
 #version 330 core
@@ -207,11 +208,12 @@ def cursor_position_callback(window, xpos, ypos):
     g_prev_y = ypos
 
 def load_obj(file_path):
-    global face_count, vertice_3_face_count, vertice_4_face_count, other
+    global face_count, vertice_3_face_count, vertice_4_face_count, other, draw_count
     vertices = []
     normals = []
     indices = []
     normal_indices = []
+    vertex_array = []
 
     with open(file_path, "r") as f:
         for line in f:
@@ -221,66 +223,77 @@ def load_obj(file_path):
             
             if parts[0] == "v":
                 vertex = [float(x) for x in parts[1:]]
-                vertices.extend(vertex)
+                vertices.append(vertex)
             
             elif parts[0] == "vn":
                 normal = [float(x) for x in parts[1:]]
-                normals.extend(normal)
+                normals.append(normal)
             
-            elif parts[0] == "f":
+            elif parts[0] == 'f':
                 face_count += 1
                 if len(parts) > 5:
                     other += 1
-                    verts = [p.split('/')[0] for p in parts[1:]]
+                    verts = [p.split('//') for p in parts[1:]]
                     for i in range(1, len(verts) - 1):
-                        indices.append(int(verts[0]) - 1)
-                        indices.append(int(verts[i]) - 1)
-                        indices.append(int(verts[i+1]) - 1)
+                        for j in [0, i, i+1]:
+                            v_index, n_index = map(int, verts[j])
+                            vertex = vertices[v_index - 1]
+                            normal = normals[n_index - 1]
+                            vertex_array.append(vertex + normal)
+                            indices.append(len(vertex_array) - 1)
 
                 elif len(parts) == 5:
                     vertice_4_face_count += 1
-                    verts = [p.split('/')[0] for p in parts[1:]]
-
-                    indices.append(int(verts[0]) - 1)
-                    indices.append(int(verts[1]) - 1)
-                    indices.append(int(verts[2]) - 1)
-
-                    indices.append(int(verts[0]) - 1)
-                    indices.append(int(verts[2]) - 1)
-                    indices.append(int(verts[3]) - 1)
+                    verts = [p.split('//') for p in parts[1:]]
+                    for j in [0, 1, 2]:
+                        v_index, n_index = map(int, verts[j])
+                        vertex = vertices[v_index - 1]
+                        normal = normals[n_index - 1]
+                        vertex_array.append(vertex + normal)
+                        indices.append(len(vertex_array) - 1)
+                    
+                    for j in [0, 2, 3]:
+                        v_index, n_index = map(int, verts[j])
+                        vertex = vertices[v_index - 1]
+                        normal = normals[n_index - 1]
+                        vertex_array.append(vertex + normal)
+                        indices.append(len(vertex_array) - 1)
 
                 elif len(parts) == 4:
                     vertice_3_face_count += 1
                     for p in parts[1:]:
-                        verts = int(p.split('/')[0]) - 1
-                        indices.append(verts)
-                
-    vertices = np.array(vertices, dtype=np.float32)
-    normals = np.array(normals, dtype=np.float32)
+                        v_index, n_index = map(int, p.split('//'))
+                        vertex = vertices[v_index - 1]
+                        normal = normals[n_index - 1]
+                        vertex_array.append(vertex + normal)
+                        indices.append(len(vertex_array) - 1)
+
+
+    vertex_array = np.array(vertex_array, dtype=np.float32)
+    draw_count = len(vertex_array)
     indices = np.array(indices, dtype=np.uint32)
-    normal_indices = np.array(normal_indices, dtype=np.uint32)
+
     file_name = [file_path.split('\\')[-1]]
     print(f"Obj file name : {file_name}, Total number of faces : {face_count}, Number of faces with 3 vertices : {vertice_3_face_count}, Number of faces with 4 vertices : {vertice_4_face_count}, Number of faces with more than 4 vertices : {other}")
-    return vertices, normals, indices
+    
+    return vertex_array, indices
 
-def setup_buffers(vertices, normals, indices):
+def setup_buffers(vertices_array, indices):
     VAO = glGenVertexArrays(1)
     VBO = glGenBuffers(1)
-    EBO = glGenBuffers(1)
 
     glBindVertexArray(VAO)
 
     # VBO 설정
     glBindBuffer(GL_ARRAY_BUFFER, VBO)
-    glBufferData(GL_ARRAY_BUFFER, vertices.nbytes, vertices, GL_STATIC_DRAW)
-
-    # EBO 설정
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO)
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.nbytes, indices, GL_STATIC_DRAW)
+    glBufferData(GL_ARRAY_BUFFER, vertices_array.nbytes, vertices_array, GL_STATIC_DRAW)
 
     # 정점 속성 설정
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_TRUE, 3 * glm.sizeof(glm.float32), None)
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_TRUE, 6 * glm.sizeof(glm.float32), None)
     glEnableVertexAttribArray(0)
+
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_TRUE, 6 * glm.sizeof(glm.float32), ctypes.c_void_p(3*glm.sizeof(glm.float32)))
+    glEnableVertexAttribArray(1)
 
     glBindBuffer(GL_ARRAY_BUFFER, 0)
     glBindVertexArray(0)
@@ -295,8 +308,8 @@ def drop_callback(window, paths):
     for path in paths:
         print(f"Dropped file: {path}")
     try:
-        vertices, normals, indices = load_obj(model_path)
-        VAO, index_count = setup_buffers(vertices, normals, indices)
+        vertices_array, indices = load_obj(model_path)
+        VAO, index_count = setup_buffers(vertices_array, indices)
         
         position = (offset_x, 0., 0.)
         objects.append({
@@ -456,7 +469,7 @@ def main():
             glUniformMatrix4fv(MVP_loc, 1, GL_FALSE, glm.value_ptr(model))
 
             glBindVertexArray(obj["VAO"])
-            glDrawElements(GL_TRIANGLES, obj["index_count"], GL_UNSIGNED_INT, None)
+            glDrawArrays(GL_TRIANGLES, 0, draw_count)
             glBindVertexArray(0)
         glfwSwapBuffers(window)
 
